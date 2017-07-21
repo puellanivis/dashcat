@@ -28,9 +28,9 @@ var (
 			return nil
 		}, flag.WithShort('t'))
 
-	play     = flag.Bool("play", false, "start a subprocess to pipe the output to (currently only mpv)")
-	metrics  = flag.Bool("metrics", false, "listens on a random port to report metrics", flag.WithDefault(true))
-	quiet = flag.Bool("quiet", false, "surpresses unnecessary output", flag.WithShort('q'))
+	play    = flag.Bool("play", false, "start a subprocess to pipe the output to (currently only mpv)")
+	metrics = flag.Bool("metrics", false, "listens on a random port to report metrics", flag.WithDefault(true))
+	quiet   = flag.Bool("quiet", false, "surpresses unnecessary output", flag.WithShort('q'))
 )
 
 var stderr = os.Stderr
@@ -149,7 +149,7 @@ func maybeMUX(ctx context.Context, out io.Writer, arg string) error {
 		"-nostdin",
 	}
 
-	for i, _ := range mimeTypes {
+	for i := range mimeTypes {
 		ffmpegArgs = append(ffmpegArgs, "-i", fmt.Sprintf("/dev/fd/%d", 3+i))
 	}
 
@@ -183,7 +183,7 @@ func maybeMUX(ctx context.Context, out io.Writer, arg string) error {
 		mimeType := mimeType
 
 		go func() {
-			defer func() {	
+			defer func() {
 				if err := wr.Close(); err != nil {
 					log.Error(err)
 				}
