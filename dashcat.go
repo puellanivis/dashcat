@@ -10,7 +10,7 @@ import (
 	"os/exec"
 	"time"
 
-	httpfiles "github.com/puellanivis/breton/lib/files/http"
+	"github.com/puellanivis/breton/lib/files/httpfiles"
 	_ "github.com/puellanivis/breton/lib/files/plugins"
 	"github.com/puellanivis/breton/lib/flag"
 	"github.com/puellanivis/breton/lib/log"
