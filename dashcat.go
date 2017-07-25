@@ -59,8 +59,15 @@ func main() {
 				return
 			}
 
-			util.Statusln("listening on:", l.Addr())
-			log.Infoln("listening on:", l.Addr())
+			_, lport, err := net.SplitHostPort(l.Addr().String())
+			if err != nil {
+				util.Statusln("failed to get port from listener", err)
+				return
+			}
+
+			msg := fmt.Sprintf("metrics available at: http://localhost:%s/metrics/prometheus", lport)
+			util.Statusln(msg)
+			log.Infoln(msg)
 
 			go func() {
 				<-ctx.Done()
