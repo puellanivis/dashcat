@@ -29,8 +29,10 @@ var (
 		}, flag.WithShort('t'))
 
 	play    = flag.Bool("play", false, "start a subprocess to pipe the output to (currently only mpv)")
-	metrics = flag.Bool("metrics", false, "listens on a random port to report metrics", flag.WithDefault(true))
 	quiet   = flag.Bool("quiet", false, "surpresses unnecessary output", flag.WithShort('q'))
+
+	metrics = flag.Bool("metrics", false, "listens on a given port to report metrics")
+	port = flag.Int("port", 0, "which port to listen to, if set, implies --metrics (default random available port)", flag.WithShort('p'))
 )
 
 var stderr = os.Stderr
@@ -51,9 +53,9 @@ func main() {
 		stderr = nil
 	}
 
-	if *metrics {
+	if *metrics || *port != 0 {
 		go func() {
-			l, err := net.Listen("tcp", ":0")
+			l, err := net.Listen("tcp", fmt.Sprintf(":%d", *port))
 			if err != nil {
 				util.Statusln("failed to establish listener", err)
 				return
