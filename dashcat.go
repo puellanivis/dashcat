@@ -12,8 +12,8 @@ import (
 
 	"github.com/puellanivis/breton/lib/files/httpfiles"
 	_ "github.com/puellanivis/breton/lib/files/plugins"
-	"github.com/puellanivis/breton/lib/flag"
-	"github.com/puellanivis/breton/lib/log"
+	flag "github.com/puellanivis/breton/lib/gnuflag"
+	log "github.com/puellanivis/breton/lib/glog"
 	_ "github.com/puellanivis/breton/lib/metrics/http"
 	"github.com/puellanivis/breton/lib/net/dash"
 	"github.com/puellanivis/breton/lib/util"
