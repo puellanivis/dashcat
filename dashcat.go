@@ -12,8 +12,8 @@ import (
 
 	"github.com/puellanivis/breton/lib/files/httpfiles"
 	_ "github.com/puellanivis/breton/lib/files/plugins"
-	flag "github.com/puellanivis/breton/lib/gnuflag"
 	log "github.com/puellanivis/breton/lib/glog"
+	flag "github.com/puellanivis/breton/lib/gnuflag"
 	_ "github.com/puellanivis/breton/lib/metrics/http"
 	"github.com/puellanivis/breton/lib/net/dash"
 	"github.com/puellanivis/breton/lib/util"
@@ -28,11 +28,11 @@ var (
 			return nil
 		}, flag.WithShort('t'))
 
-	play    = flag.Bool("play", false, "start a subprocess to pipe the output to (currently only mpv)")
-	quiet   = flag.Bool("quiet", false, "surpresses unnecessary output", flag.WithShort('q'))
+	play  = flag.Bool("play", false, "start a subprocess to pipe the output to (currently only mpv)")
+	quiet = flag.Bool("quiet", false, "surpresses unnecessary output", flag.WithShort('q'))
 
 	metrics = flag.Bool("metrics", false, "listens on a given port to report metrics")
-	port = flag.Int("port", 0, "which port to listen to, if set, implies --metrics (default random available port)", flag.WithShort('p'))
+	port    = flag.Int("port", 0, "which port to listen to, if set, implies --metrics (default random available port)", flag.WithShort('p'))
 )
 
 var stderr = os.Stderr
