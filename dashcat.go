@@ -15,6 +15,7 @@ import (
 	log "github.com/puellanivis/breton/lib/glog"
 	flag "github.com/puellanivis/breton/lib/gnuflag"
 	_ "github.com/puellanivis/breton/lib/metrics/http"
+	"github.com/puellanivis/breton/lib/io/bufpipe"
 	"github.com/puellanivis/breton/lib/net/dash"
 	"github.com/puellanivis/breton/lib/util"
 )
@@ -191,14 +192,17 @@ func maybeMUX(ctx context.Context, out io.Writer, arg string) error {
 
 		mimeType := mimeType
 
+		pipe := bufpipe.New(ctx)
+		go io.Copy(wr, pipe)		// simple enough, pipe will block on Read until written to.
+
 		go func() {
 			defer func() {
-				if err := wr.Close(); err != nil {
+				if err := pipe.Close(); err != nil {
 					log.Error(err)
 				}
 			}()
 
-			if err := stream(ctx, wr, mpd, mimeType); err != nil {
+			if err := stream(ctx, pipe, mpd, mimeType); err != nil {
 				log.Error(err)
 				cancel()
 			}
