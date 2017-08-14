@@ -14,8 +14,8 @@ import (
 	_ "github.com/puellanivis/breton/lib/files/plugins"
 	log "github.com/puellanivis/breton/lib/glog"
 	flag "github.com/puellanivis/breton/lib/gnuflag"
-	_ "github.com/puellanivis/breton/lib/metrics/http"
 	"github.com/puellanivis/breton/lib/io/bufpipe"
+	_ "github.com/puellanivis/breton/lib/metrics/http"
 	"github.com/puellanivis/breton/lib/net/dash"
 	"github.com/puellanivis/breton/lib/util"
 )
@@ -193,7 +193,7 @@ func maybeMUX(ctx context.Context, out io.Writer, arg string) error {
 		mimeType := mimeType
 
 		pipe := bufpipe.New(ctx)
-		go io.Copy(wr, pipe)		// simple enough, pipe will block on Read until written to.
+		go io.Copy(wr, pipe) // simple enough, pipe will block on Read until written to.
 
 		go func() {
 			defer func() {
@@ -213,7 +213,7 @@ func maybeMUX(ctx context.Context, out io.Writer, arg string) error {
 }
 
 func stream(ctx context.Context, out io.Writer, mpd *dash.Manifest, mimeType string) error {
-	s, err := mpd.Stream(out, mimeType, dash.PickHighestBandwidth)
+	s, err := mpd.Stream(out, mimeType, dash.PickHighestBandwidth())
 	if err != nil {
 		return err
 	}
@@ -230,7 +230,7 @@ func stream(ctx context.Context, out io.Writer, mpd *dash.Manifest, mimeType str
 
 readLoop:
 	for {
-		duration, err := mpd.Pull(ctx, s)
+		duration, err := s.Read(ctx)
 		totalDuration += duration
 
 		if err != nil {
