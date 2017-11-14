@@ -20,21 +20,18 @@ import (
 	"github.com/puellanivis/breton/lib/util"
 )
 
-var mimeTypes []string
+var Flags struct {
+	MimeTypes []string `flag:"mime-type,short=t"    desc:"which mime-type(s) to stream (default \"video/mp4\")"`
+	Play      bool     `                            desc:"start a subprocess to pipe the output to (currently only mpv)"`
+	Quiet     bool     `flag:",short=q"             desc:"suppress unnecessary output from subprocesses"`
+	Metrics   bool     `                            desc:"listens on a given port to report metrics"`
+	Port      int      `flag:",short=p"             desc:"which port to listen to, if set, implies --metrics (default random available port)"`
+	UserAgent string   `flag:",default=dashcat/1.0" desc:"which User-Agent string to use"`
+}
 
-var (
-	_ = flag.FuncWithArg("mime-type", "which mime-type(s) to stream (default\"video/mp4\" alone)",
-		func(s string) error {
-			mimeTypes = append(mimeTypes, s)
-			return nil
-		}, flag.WithShort('t'))
-
-	play  = flag.Bool("play", false, "start a subprocess to pipe the output to (currently only mpv)")
-	quiet = flag.Bool("quiet", false, "surpresses unnecessary output", flag.WithShort('q'))
-
-	metrics = flag.Bool("metrics", false, "listens on a given port to report metrics")
-	port    = flag.Int("port", 0, "which port to listen to, if set, implies --metrics (default random available port)", flag.WithShort('p'))
-)
+func init() {
+	flag.FlagStruct("", &Flags)
+}
 
 var stderr = os.Stderr
 
@@ -42,7 +39,7 @@ func main() {
 	defer util.Init("dash-cat", 0, 1)()
 
 	ctx := util.Context()
-	ctx = httpfiles.WithUserAgent(ctx, "dashcat/1.0")
+	ctx = httpfiles.WithUserAgent(ctx, Flags.UserAgent)
 
 	args := flag.Args()
 	if len(args) < 1 {
@@ -50,13 +47,13 @@ func main() {
 		return
 	}
 
-	if *quiet {
+	if Flags.Quiet {
 		stderr = nil
 	}
 
-	if *metrics || *port != 0 {
+	if Flags.Metrics || Flags.Port != 0 {
 		go func() {
-			l, err := net.Listen("tcp", fmt.Sprintf(":%d", *port))
+			l, err := net.Listen("tcp", fmt.Sprintf(":%d", Flags.Port))
 			if err != nil {
 				util.Statusln("failed to establish listener", err)
 				return
@@ -84,23 +81,18 @@ func main() {
 	}
 
 	done := make(chan struct{})
-	if !*play {
+	if !Flags.Play {
 		// close done, because there will be no subprocess
 		close(done)
 	}
-	defer func() {
-		// without doing this last, we will not close the
-		// subprocess pipe before blocking on done.
-		<-done
-	}()
 
-	if len(mimeTypes) < 1 {
-		mimeTypes = append(mimeTypes, "video/mp4")
+	if len(Flags.MimeTypes) < 1 {
+		Flags.MimeTypes = append(Flags.MimeTypes, "video/mp4")
 	}
 
 	var out io.Writer = os.Stdout
 
-	if *play {
+	if Flags.Play {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithCancel(ctx)
 
@@ -151,15 +143,15 @@ func maybeMUX(ctx context.Context, out io.Writer, arg string) error {
 		return err
 	}
 
-	if len(mimeTypes) == 1 {
-		return stream(ctx, out, mpd, mimeTypes[0])
+	if len(Flags.MimeTypes) == 1 {
+		return stream(ctx, out, mpd, Flags.MimeTypes[0])
 	}
 
 	ffmpegArgs := []string{
 		"-nostdin",
 	}
 
-	for i := range mimeTypes {
+	for i := range Flags.MimeTypes {
 		ffmpegArgs = append(ffmpegArgs, "-i", fmt.Sprintf("/dev/fd/%d", 3+i))
 	}
 
@@ -182,7 +174,7 @@ func maybeMUX(ctx context.Context, out io.Writer, arg string) error {
 	cmd.Stdout = out
 	cmd.Stderr = stderr
 
-	for _, mimeType := range mimeTypes {
+	for _, mimeType := range Flags.MimeTypes {
 		rd, wr, err := os.Pipe()
 		if err != nil {
 			return err
@@ -193,7 +185,7 @@ func maybeMUX(ctx context.Context, out io.Writer, arg string) error {
 		mimeType := mimeType
 
 		pipe := bufpipe.New(ctx)
-		go io.Copy(wr, pipe) // simple enough, pipe will block on Read until written to.
+		go io.Copy(wr, pipe) // simple enough, bufpipe.Pipe will block on Reads until written to.
 
 		go func() {
 			defer func() {
