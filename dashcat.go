@@ -152,6 +152,12 @@ func maybeMUX(ctx context.Context, out io.Writer, arg string) error {
 	}
 
 	for i := range Flags.MimeTypes {
+		if mpd.IsDynamic() {
+			ffmpegArgs = append(ffmpegArgs,
+				"-thread_queue_size", "1024",
+			)
+		}
+
 		ffmpegArgs = append(ffmpegArgs, "-i", fmt.Sprintf("/dev/fd/%d", 3+i))
 	}
 
@@ -159,6 +165,9 @@ func maybeMUX(ctx context.Context, out io.Writer, arg string) error {
 		"-c", "copy",
 		"-copyts",
 		"-movflags", "frag_keyframe+empty_moov",
+	)
+
+	ffmpegArgs = append(ffmpegArgs,
 		"-f", "mp4",
 		"-",
 	)
@@ -182,10 +191,18 @@ func maybeMUX(ctx context.Context, out io.Writer, arg string) error {
 
 		cmd.ExtraFiles = append(cmd.ExtraFiles, rd)
 
+		// make a loop-only shadow copy for closures.
 		mimeType := mimeType
 
 		pipe := bufpipe.New(ctx)
-		go io.Copy(wr, pipe) // simple enough, bufpipe.Pipe will block on Reads until written to.
+		go func() {
+			defer wr.Close()
+
+			// simple enough, bufpipe.Pipe will block on Reads until written to.
+			if _, err := io.Copy(wr, pipe); err != nil {
+				log.Error(err)
+			}
+		}()
 
 		go func() {
 			defer func() {
@@ -195,7 +212,7 @@ func maybeMUX(ctx context.Context, out io.Writer, arg string) error {
 			}()
 
 			if err := stream(ctx, pipe, mpd, mimeType); err != nil {
-				log.Error(err)
+				log.Errorf("%s: stream error: %s", mimeType, err)
 				cancel()
 			}
 		}()
