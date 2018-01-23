@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"sync"
+	"syscall"
 	"time"
 
 	"github.com/puellanivis/breton/lib/files/httpfiles"
@@ -18,6 +20,8 @@ import (
 	_ "github.com/puellanivis/breton/lib/metrics/http"
 	"github.com/puellanivis/breton/lib/net/dash"
 	"github.com/puellanivis/breton/lib/util"
+
+	"github.com/pkg/errors"
 )
 
 var Flags struct {
@@ -36,10 +40,17 @@ func init() {
 var stderr = os.Stderr
 
 func main() {
-	defer util.Init("dash-cat", 0, 1)()
+	finish, ctx := util.Init("dash-cat", 0, 1)
+	defer finish()
 
-	ctx := util.Context()
 	ctx = httpfiles.WithUserAgent(ctx, Flags.UserAgent)
+
+	ctx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	defer func() {
+		cancel()
+		<-done
+	}()
 
 	args := flag.Args()
 	if len(args) < 1 {
@@ -55,13 +66,13 @@ func main() {
 		go func() {
 			l, err := net.Listen("tcp", fmt.Sprintf(":%d", Flags.Port))
 			if err != nil {
-				util.Statusln("failed to establish listener", err)
+				log.Error("failed to establish listener: ", err)
 				return
 			}
 
 			_, lport, err := net.SplitHostPort(l.Addr().String())
 			if err != nil {
-				util.Statusln("failed to get port from listener", err)
+				log.Error("failed to get port from listener: ", err)
 				return
 			}
 
@@ -69,18 +80,22 @@ func main() {
 			util.Statusln(msg)
 			log.Infoln(msg)
 
+			srv := &http.Server{}
+
 			go func() {
 				<-ctx.Done()
+				srv.Shutdown(util.Context())
 				l.Close()
 			}()
 
-			if err := http.Serve(l, nil); err != nil {
-				util.Statusln(err)
+			if err := srv.Serve(l); err != nil {
+				if err != http.ErrServerClosed {
+					log.Error(err)
+				}
 			}
 		}()
 	}
 
-	done := make(chan struct{})
 	if !Flags.Play {
 		// close done, because there will be no subprocess
 		close(done)
@@ -93,14 +108,10 @@ func main() {
 	var out io.Writer = os.Stdout
 
 	if Flags.Play {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithCancel(ctx)
-
 		mpv, err := exec.LookPath("mpv")
 		if err != nil {
 			log.Fatal(err)
 		}
-
 		cmd := exec.CommandContext(ctx, mpv, "-")
 
 		pipe, err := cmd.StdinPipe()
@@ -125,100 +136,135 @@ func main() {
 				log.Error(err)
 			}
 
-			util.Statusln("subprocess quit")
+			if !Flags.Quiet {
+				log.Info("subprocess quit")
+			}
 		}()
-
 	}
 
 	for _, arg := range args {
-		if err := maybeMUX(ctx, out, arg); err != nil {
-			log.Error(err)
+		for err := range maybeMUX(ctx, out, arg) {
+			if err != nil {
+				log.Errorf("%+v", err)
+			}
 		}
 	}
 }
 
-func maybeMUX(ctx context.Context, out io.Writer, arg string) error {
-	mpd, err := dash.New(ctx, arg)
-	if err != nil {
-		return err
-	}
+func maybeMUX(ctx context.Context, out io.Writer, arg string) <-chan error {
+	errch := make(chan error)
 
-	if len(Flags.MimeTypes) == 1 {
-		return stream(ctx, out, mpd, Flags.MimeTypes[0])
-	}
+	go func() {
+		defer close(errch)
 
-	ffmpegArgs := []string{
-		"-nostdin",
-	}
+		var wg sync.WaitGroup
+		defer wg.Wait()
 
-	for i := range Flags.MimeTypes {
-		if mpd.IsDynamic() {
-			ffmpegArgs = append(ffmpegArgs,
-				"-thread_queue_size", "1024",
-			)
-		}
-
-		ffmpegArgs = append(ffmpegArgs, "-i", fmt.Sprintf("/dev/fd/%d", 3+i))
-	}
-
-	ffmpegArgs = append(ffmpegArgs,
-		"-c", "copy",
-		"-copyts",
-		"-movflags", "frag_keyframe+empty_moov",
-	)
-
-	ffmpegArgs = append(ffmpegArgs,
-		"-f", "mp4",
-		"-",
-	)
-
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	if log.V(5) {
-		log.Info("ffmpeg", ffmpegArgs)
-	}
-
-	cmd := exec.CommandContext(ctx, "ffmpeg", ffmpegArgs...)
-	cmd.Stdout = out
-	cmd.Stderr = stderr
-
-	for _, mimeType := range Flags.MimeTypes {
-		rd, wr, err := os.Pipe()
+		mpd, err := dash.New(ctx, arg)
 		if err != nil {
-			return err
+			errch <- err
+			return
 		}
 
-		cmd.ExtraFiles = append(cmd.ExtraFiles, rd)
+		if len(Flags.MimeTypes) == 1 {
+			errch <- stream(ctx, out, mpd, Flags.MimeTypes[0])
+			return
+		}
 
-		// make a loop-only shadow copy for closures.
-		mimeType := mimeType
+		ffmpegArgs := []string{
+			"-nostdin",
+		}
 
-		pipe := bufpipe.New(ctx)
-		go func() {
-			defer wr.Close()
-
-			// simple enough, bufpipe.Pipe will block on Reads until written to.
-			if _, err := io.Copy(wr, pipe); err != nil {
-				log.Error(err)
+		for i := range Flags.MimeTypes {
+			if mpd.IsDynamic() {
+				ffmpegArgs = append(ffmpegArgs,
+					"-thread_queue_size", "1024",
+				)
 			}
-		}()
 
-		go func() {
-			defer func() {
-				if err := pipe.Close(); err != nil {
-					log.Error(err)
+			ffmpegArgs = append(ffmpegArgs, "-i", fmt.Sprintf("/dev/fd/%d", 3+i))
+		}
+
+		ffmpegArgs = append(ffmpegArgs,
+			"-c", "copy",
+			"-copyts",
+			"-movflags", "frag_keyframe+empty_moov",
+		)
+
+		ffmpegArgs = append(ffmpegArgs,
+			"-f", "mp4",
+			"-",
+		)
+
+		ctx, cancel := context.WithCancel(ctx)
+		defer cancel()
+
+		if log.V(5) {
+			log.Info("ffmpeg", ffmpegArgs)
+		}
+
+		cmd := exec.CommandContext(util.Context(), "ffmpeg", ffmpegArgs...)
+		cmd.Stdout = out
+		cmd.Stderr = stderr
+
+		for _, mimeType := range Flags.MimeTypes {
+			rd, wr, err := os.Pipe()
+			if err != nil {
+				errch <- errors.WithStack(err)
+				return
+			}
+
+			cmd.ExtraFiles = append(cmd.ExtraFiles, rd)
+
+			// make a loop-only shadow copy for closures.
+			mimeType := mimeType
+
+			pipe := bufpipe.New(ctx)
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+
+				defer func() {
+					errch <- errors.WithStack(wr.Close())
+				}()
+
+				// simple enough, bufpipe.Pipe will block on Reads until written to.
+				if _, err := io.Copy(wr, pipe); err != nil {
+					errch <- errors.WithStack(err)
 				}
 			}()
 
-			if err := stream(ctx, pipe, mpd, mimeType); err != nil {
-				log.Errorf("%s: stream error: %s", mimeType, err)
-				cancel()
-			}
-		}()
-	}
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
 
-	return cmd.Run()
+				defer func() {
+					errch <- errors.WithStack(pipe.Close())
+				}()
+
+				if err := stream(ctx, pipe, mpd, mimeType); err != nil {
+					errch <- err
+					cancel()
+				}
+			}()
+		}
+
+		if err := cmd.Run(); err != nil {
+			state := cmd.ProcessState.Sys().(syscall.WaitStatus)
+			if sig := state.Signal(); sig != -1 {
+				if sig == syscall.SIGPIPE {
+					// ignore “pipe closed”,
+					// which means that what we were catting to a process
+					// and that process closed.
+					return
+				}
+			}
+
+			errch <- errors.WithStack(err)
+		}
+	}()
+
+	return errch
 }
 
 func stream(ctx context.Context, out io.Writer, mpd *dash.Manifest, mimeType string) error {
@@ -267,6 +313,6 @@ readLoop:
 		}
 	}
 
-	util.Statusln("total duration:", totalDuration)
+	util.Statusf("%s: total duration: %v\n", mimeType, totalDuration)
 	return nil
 }
