@@ -12,9 +12,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/puellanivis/breton/lib/files"
 	"github.com/puellanivis/breton/lib/files/httpfiles"
 	_ "github.com/puellanivis/breton/lib/files/plugins"
-	log "github.com/puellanivis/breton/lib/glog"
+	"github.com/puellanivis/breton/lib/glog"
 	flag "github.com/puellanivis/breton/lib/gnuflag"
 	"github.com/puellanivis/breton/lib/io/bufpipe"
 	_ "github.com/puellanivis/breton/lib/metrics/http"
@@ -55,30 +56,44 @@ func main() {
 	args := flag.Args()
 	if len(args) < 1 {
 		util.Statusln(flag.Usage)
-		return
+		util.Exit(1)
 	}
 
 	if Flags.Quiet {
 		stderr = nil
 	}
 
-	if Flags.Metrics || Flags.Port != 0 {
+	if glog.V(2) {
+		if err := flag.Set("stderrthreshold", "INFO"); err != nil {
+			glog.Error(err)
+		}
+	}
+
+	if Flags.Port != 0 {
+		Flags.Metrics = true
+	}
+
+	if Flags.Metrics {
 		go func() {
 			l, err := net.Listen("tcp", fmt.Sprintf(":%d", Flags.Port))
 			if err != nil {
-				log.Error("failed to establish listener: ", err)
+				glog.Error("failed to establish listener: ", err)
 				return
 			}
 
 			_, lport, err := net.SplitHostPort(l.Addr().String())
 			if err != nil {
-				log.Error("failed to get port from listener: ", err)
+				glog.Error("failed to get port from listener: ", err)
 				return
 			}
 
 			msg := fmt.Sprintf("metrics available at: http://localhost:%s/metrics/prometheus", lport)
 			util.Statusln(msg)
-			log.Infoln(msg)
+			glog.Info(msg)
+
+			http.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
+				http.Redirect(w, req, "/metrics/prometheus", http.StatusMovedPermanently)
+			})
 
 			srv := &http.Server{}
 
@@ -90,7 +105,7 @@ func main() {
 
 			if err := srv.Serve(l); err != nil {
 				if err != http.ErrServerClosed {
-					log.Error(err)
+					glog.Error(err)
 				}
 			}
 		}()
@@ -110,13 +125,13 @@ func main() {
 	if Flags.Play {
 		mpv, err := exec.LookPath("mpv")
 		if err != nil {
-			log.Fatal(err)
+			glog.Fatal(err)
 		}
 		cmd := exec.CommandContext(ctx, mpv, "-")
 
 		pipe, err := cmd.StdinPipe()
 		if err != nil {
-			log.Fatal(err)
+			glog.Fatal(err)
 		}
 		defer pipe.Close()
 		out = pipe
@@ -125,7 +140,7 @@ func main() {
 		cmd.Stderr = stderr
 
 		if err := cmd.Start(); err != nil {
-			log.Error(err)
+			glog.Error(err)
 		}
 
 		go func() {
@@ -133,11 +148,11 @@ func main() {
 			defer cancel()
 
 			if err := cmd.Wait(); err != nil {
-				log.Error(err)
+				glog.Error(err)
 			}
 
 			if !Flags.Quiet {
-				log.Info("subprocess quit")
+				glog.Info("subprocess quit")
 			}
 		}()
 	}
@@ -145,7 +160,7 @@ func main() {
 	for _, arg := range args {
 		for err := range maybeMUX(ctx, out, arg) {
 			if err != nil {
-				log.Errorf("%+v", err)
+				glog.Errorf("%+v", err)
 			}
 		}
 	}
@@ -199,8 +214,8 @@ func maybeMUX(ctx context.Context, out io.Writer, arg string) <-chan error {
 		ctx, cancel := context.WithCancel(ctx)
 		defer cancel()
 
-		if log.V(5) {
-			log.Info("ffmpeg", ffmpegArgs)
+		if glog.V(5) {
+			glog.Info("ffmpeg", ffmpegArgs)
 		}
 
 		cmd := exec.CommandContext(util.Context(), "ffmpeg", ffmpegArgs...)
@@ -229,7 +244,7 @@ func maybeMUX(ctx context.Context, out io.Writer, arg string) <-chan error {
 				}()
 
 				// simple enough, bufpipe.Pipe will block on Reads until written to.
-				if _, err := io.Copy(wr, pipe); err != nil {
+				if _, err := files.Copy(ctx, wr, pipe); err != nil {
 					errch <- errors.WithStack(err)
 				}
 			}()
@@ -290,14 +305,14 @@ readLoop:
 
 		if err != nil {
 			if err != io.EOF {
-				log.Error(err)
+				glog.Error(err)
 			}
 
 			break
 		}
 
 		if duration > 0 {
-			if log.V(1) {
+			if glog.V(1) {
 				util.Statusln("segments had a duration of:", duration)
 			}
 		}
