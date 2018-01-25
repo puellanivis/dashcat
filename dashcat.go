@@ -35,7 +35,7 @@ var Flags struct {
 }
 
 func init() {
-	flag.FlagStruct("", &Flags)
+	flag.Struct("", &Flags)
 }
 
 var stderr = os.Stderr
