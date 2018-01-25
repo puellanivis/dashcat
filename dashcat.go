@@ -245,7 +245,9 @@ func maybeMUX(ctx context.Context, out io.Writer, arg string) <-chan error {
 
 				// simple enough, bufpipe.Pipe will block on Reads until written to.
 				if _, err := files.Copy(ctx, wr, pipe); err != nil {
-					errch <- errors.WithStack(err)
+					if err != ctx.Err() {
+						errch <- errors.WithStack(err)
+					}
 				}
 			}()
 
@@ -258,7 +260,9 @@ func maybeMUX(ctx context.Context, out io.Writer, arg string) <-chan error {
 				}()
 
 				if err := stream(ctx, pipe, mpd, mimeType); err != nil {
-					errch <- err
+					if err != ctx.Err() {
+						errch <- err
+					}
 					cancel()
 				}
 			}()
