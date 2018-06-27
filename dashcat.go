@@ -41,7 +41,10 @@ func init() {
 var stderr = os.Stderr
 
 func main() {
-	finish, ctx := util.Init("dash-cat", 0, 1)
+	ctx, finish, err := util.Init("dash-cat", 0, 1)
+	if err != nil {
+		glog.Fatal(err)
+	}
 	defer finish()
 
 	ctx = httpfiles.WithUserAgent(ctx, Flags.UserAgent)
