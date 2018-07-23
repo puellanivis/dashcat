@@ -55,7 +55,7 @@ func main() {
 
 	args := flag.Args()
 	if len(args) < 1 {
-		util.Statusln(flag.Usage())
+		flag.Usage()
 		util.Exit(1)
 	}
 
