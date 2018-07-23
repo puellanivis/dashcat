@@ -25,6 +25,7 @@ import (
 	"github.com/pkg/errors"
 )
 
+// Flags contains all of the flags defined for the application.
 var Flags struct {
 	MimeTypes []string `flag:"mime-type,short=t"    desc:"which mime-type(s) to stream (default \"video/mp4\")"`
 	Play      bool     `                            desc:"start a subprocess to pipe the output to (currently only mpv)"`
