@@ -2,5 +2,5 @@ module github.com/puellanivis/dashcat
 
 require (
 	github.com/pkg/errors v0.8.0
-	github.com/puellanivis/breton v0.1.5
+	github.com/puellanivis/breton v0.2.0
 )
