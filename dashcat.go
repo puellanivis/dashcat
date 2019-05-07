@@ -105,21 +105,23 @@ func main() {
 			srv := &http.Server{}
 
 			go func() {
-				<-ctx.Done()
-
-				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-				defer cancel()
-
-				srv.Shutdown(ctx)
-
-				l.Close()
+				if err := srv.Serve(l); err != nil {
+					if err != http.ErrServerClosed {
+						glog.Error("http.Server.Serve: ", err)
+					}
+				}
 			}()
 
-			if err := srv.Serve(l); err != nil {
-				if err != http.ErrServerClosed {
-					glog.Error(err)
-				}
+			<-ctx.Done()
+
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			if err := srv.Shutdown(ctx); err != nil {
+				glog.Error("http.Server.Shutdown: ", err)
 			}
+
+			l.Close()
 		}()
 	}
 
