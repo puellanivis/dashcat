@@ -20,9 +20,14 @@ import (
 	"github.com/puellanivis/breton/lib/io/bufpipe"
 	_ "github.com/puellanivis/breton/lib/metrics/http"
 	"github.com/puellanivis/breton/lib/net/dash"
-	"github.com/puellanivis/breton/lib/util"
+	"github.com/puellanivis/breton/lib/os/process"
 
 	"github.com/pkg/errors"
+)
+
+var (
+	Version    = "v0.1.0"
+	Buildstamp = "dev"
 )
 
 // Flags contains all of the flags defined for the application.
@@ -42,8 +47,14 @@ func init() {
 var stderr = os.Stderr
 
 func main() {
-	ctx, finish := util.Init("dash-cat", 0, 1)
+	ctx, finish := process.Init("dash-cat", Version, Buildstamp)
 	defer finish()
+
+	args := flag.Args()
+	if len(args) < 1 {
+		flag.Usage()
+		process.Exit(1)
+	}
 
 	ctx = httpfiles.WithUserAgent(ctx, Flags.UserAgent)
 
@@ -53,12 +64,6 @@ func main() {
 		cancel()
 		<-done
 	}()
-
-	args := flag.Args()
-	if len(args) < 1 {
-		flag.Usage()
-		util.Exit(1)
-	}
 
 	if Flags.Quiet {
 		stderr = nil
@@ -89,7 +94,7 @@ func main() {
 			}
 
 			msg := fmt.Sprintf("metrics available at: http://localhost:%s/metrics/prometheus", lport)
-			util.Statusln(msg)
+			fmt.Fprintln(os.Stderr, msg)
 			glog.Info(msg)
 
 			http.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
@@ -100,7 +105,12 @@ func main() {
 
 			go func() {
 				<-ctx.Done()
-				srv.Shutdown(util.Context())
+
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+
+				srv.Shutdown(ctx)
+
 				l.Close()
 			}()
 
@@ -219,7 +229,7 @@ func maybeMUX(ctx context.Context, out io.Writer, arg string) <-chan error {
 			glog.Info("ffmpeg", ffmpegArgs)
 		}
 
-		cmd := exec.CommandContext(util.Context(), "ffmpeg", ffmpegArgs...)
+		cmd := exec.CommandContext(process.Context(), "ffmpeg", ffmpegArgs...)
 		cmd.Stdout = out
 		cmd.Stderr = stderr
 
@@ -318,7 +328,7 @@ readLoop:
 
 		if duration > 0 {
 			if glog.V(1) {
-				util.Statusln("segments had a duration of:", duration)
+				fmt.Fprintln(os.Stderr, "segments had a duration of:", duration)
 			}
 		}
 
@@ -333,6 +343,6 @@ readLoop:
 		}
 	}
 
-	util.Statusf("%s: total duration: %v\n", mimeType, totalDuration)
+	fmt.Fprintf(os.Stderr, "%s: total duration: %v\n", mimeType, totalDuration)
 	return nil
 }
