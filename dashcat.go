@@ -25,6 +25,7 @@ import (
 	"github.com/pkg/errors"
 )
 
+// Version information ready for build-time injection.
 var (
 	Version    = "v0.1.0"
 	Buildstamp = "dev"
