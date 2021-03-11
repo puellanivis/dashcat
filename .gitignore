@@ -1,5 +1,4 @@
 dashcat
 bin
-go.sum
 *.mpd
 *.sh
